@@ -70,7 +70,9 @@ impl Renderer {
         });
 
         // Create surface - use window handle to avoid lifetime issues
-        let surface = instance.create_surface(window)?;
+        let surface = unsafe { 
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(window)?)
+            }?;
 
         // Get adapter
         let adapter = instance
