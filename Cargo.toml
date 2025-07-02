@@ -1,0 +1,57 @@
+[package]
+name = "minecraft-clone"
+version = "0.1.0"
+edition = "2021"
+authors = ["AI Engineer"]
+description = "A complete Minecraft recreation with custom game engine"
+
+[dependencies]
+# Core Engine Dependencies
+winit = "0.29"                    # Cross-platform windowing
+wgpu = "0.20"                     # Modern graphics API abstraction (compatible with Rust 1.82)
+pollster = "0.3"                  # Async runtime for wgpu
+env_logger = "0.10"               # Logging
+log = "0.4"                       # Logging interface
+
+# Math and Utilities
+glam = { version = "0.27", features = ["serde"] }  # Linear algebra
+bytemuck = { version = "1.14", features = ["derive"] }  # Safe casting
+anyhow = "1.0"                    # Error handling
+serde = { version = "1.0", features = ["derive"] }     # Serialization
+bincode = "1.3"                   # Binary serialization
+
+# ECS (Entity Component System) - using bevy_ecs instead as specs is outdated
+# specs = { version = "0.20", features = ["specs-derive", "serialize"] }
+
+# Procedural Generation
+noise = "0.9"                     # Noise functions for terrain
+rand = "0.8"                      # Random number generation
+
+# Audio
+rodio = "0.17"                    # Audio playback
+
+# Networking (for future multiplayer)
+tokio = { version = "1.0", features = ["full"] }
+
+# File I/O and Compression
+flate2 = "1.0"                    # Compression for world saves
+image = "0.24"                    # Image loading for textures
+
+# GUI and Text Rendering
+egui = "0.28"                     # Immediate mode GUI
+egui-wgpu = "0.28"               # WGPU backend for egui
+egui-winit = "0.28"              # Winit integration for egui
+
+# Async and Concurrency
+rayon = "1.8"                     # Data parallelism
+crossbeam = "0.8"                 # Lock-free data structures
+parking_lot = "0.12"              # Fast synchronization primitives
+
+[profile.dev]
+opt-level = 1                     # Slightly optimized debug builds
+
+[profile.release]
+opt-level = 3                     # Maximum optimization for release
+lto = true                        # Link-time optimization
+codegen-units = 1                 # Better optimization
+panic = "abort"                   # Smaller binary size
