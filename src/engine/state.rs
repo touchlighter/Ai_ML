@@ -1,7 +1,7 @@
 use anyhow::Result;
 use winit::window::Window;
 
-use crate::rendering::Renderer;
+use crate::rendering::{Renderer, Texture};
 use crate::input::InputManager;
 use crate::world::World;
 use crate::game::GameManager;
@@ -19,7 +19,7 @@ pub struct EngineState {
 }
 
 impl EngineState {
-    pub async fn new_async(window: &Window) -> Result<Self> {
+    pub async fn new(window: &Window) -> Result<Self> {
         // Initialize renderer first as other systems may depend on it
         let renderer = Renderer::new(window).await?;
         
@@ -28,7 +28,13 @@ impl EngineState {
         let world = World::new();
         let game_manager = GameManager::new();
         let audio_manager = AudioManager::new()?;
-        let ui_manager = UIManager::new(&renderer);
+        let ui_manager = UIManager::new(
+            renderer.device(),
+            renderer.surface_format(),
+            Some(Texture::DEPTH_FORMAT),
+            1,
+            window,
+        );
 
         Ok(Self {
             renderer,
@@ -38,9 +44,5 @@ impl EngineState {
             audio_manager,
             ui_manager,
         })
-    }
-    
-    pub fn new(window: &Window) -> Result<Self> {
-        pollster::block_on(Self::new_async(window))
     }
 }

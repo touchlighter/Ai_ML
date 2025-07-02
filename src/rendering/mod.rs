@@ -2,13 +2,12 @@ use anyhow::Result;
 use wgpu::util::DeviceExt;
 use winit::{dpi::PhysicalSize, window::Window};
 
-mod camera;
 pub mod camera;
 mod texture;
 mod vertex;
 mod shader;
-mod chunk_renderer;
 mod skybox;
+mod chunk_renderer;
 
 pub use camera::Camera;
 pub use texture::{Texture, TextureAtlas};
@@ -26,25 +25,15 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
-    
-    // Camera and view
+    render_pipeline: wgpu::RenderPipeline,
+    depth_texture: Texture,
+    texture_atlas: TextureAtlas,
+    chunk_renderer: ChunkRenderer,
+    skybox_pipeline: wgpu::RenderPipeline,
     camera: Camera,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    
-    // Render pipeline
-    render_pipeline: wgpu::RenderPipeline,
-    depth_texture: Texture,
-    
-    // Chunk rendering
-    chunk_renderer: ChunkRenderer,
-    
-    // Skybox
-    skybox_pipeline: wgpu::RenderPipeline,
-    
-    // Texture atlas
-    texture_atlas: TextureAtlas,
 }
 
 #[repr(C)]
@@ -75,10 +64,12 @@ impl Renderer {
         // Create wgpu instance
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            ..Default::default()
+            flags: wgpu::InstanceFlags::default(),
+            dx12_shader_compiler: Default::default(),
+            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
 
-        // Create surface
+        // Create surface - use window handle to avoid lifetime issues
         let surface = instance.create_surface(window)?;
 
         // Get adapter
@@ -274,7 +265,6 @@ impl Renderer {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
-            cache: None,
         });
 
         Ok(Self {
@@ -283,27 +273,29 @@ impl Renderer {
             queue,
             config,
             size,
+            render_pipeline,
+            depth_texture,
+            texture_atlas,
+            chunk_renderer,
+            skybox_pipeline,
             camera,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            render_pipeline,
-            depth_texture,
-            chunk_renderer,
-            skybox_pipeline,
-            texture_atlas,
         })
     }
 
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>) -> Result<()> {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-            self.depth_texture = Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
-            self.camera.set_aspect_ratio(new_size.width as f32 / new_size.height as f32);
+            
+            // Recreate depth texture
+            self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
         }
+        Ok(())
     }
 
     pub fn size(&self) -> PhysicalSize<u32> {
@@ -320,30 +312,25 @@ impl Renderer {
 
     pub fn render(
         &mut self,
+        window: &Window,
         world: &World,
+        camera: &Camera,
         game_manager: &GameManager,
         ui_manager: &mut UIManager,
-    ) -> Result<(), wgpu::SurfaceError> {
-        // Update camera uniform
-        self.camera_uniform.update_view_proj(&self.camera);
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
-        );
-
-        // Get surface texture
+    ) -> Result<()> {
         let output = self.surface.get_current_texture()?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Create command encoder
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+        // Prepare UI and get primitives
+        let primitives = ui_manager.prepare(window);
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: window.scale_factor() as f32,
+        };
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
 
         // Main render pass
         {
@@ -370,22 +357,18 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
-                occlusion_query_set: None,
                 timestamp_writes: None,
+                occlusion_query_set: None,
             });
 
             // Render world chunks
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, self.texture_atlas.bind_group(), &[]);
-            
-            self.chunk_renderer.render(&mut render_pass, world);
+            // TODO: Implement actual chunk rendering
         }
 
         // Render UI
-        ui_manager.render(&mut encoder, &view, &self.device, &self.queue);
+        ui_manager.render(&mut encoder, &view, primitives, &screen_descriptor, &self.device, &self.queue);
 
-        // Submit commands
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
@@ -398,5 +381,9 @@ impl Renderer {
 
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
+    }
+
+    pub fn surface_format(&self) -> wgpu::TextureFormat {
+        self.config.format
     }
 }
