@@ -5,163 +5,155 @@ use winit::{event::WindowEvent, window::Window};
 
 /// UI manager using egui for immediate mode GUI
 pub struct UIManager {
-    context: egui::Context,
-    state: State,
-    renderer: Renderer,
+    pub ctx: egui::Context,
+    pub state: State,
+    pub renderer: Renderer,
 }
 
 impl UIManager {
-    pub fn new(renderer: &crate::rendering::Renderer) -> Self {
-        let context = egui::Context::default();
-        let state = State::new(
-            context.clone(),
-            egui::ViewportId::ROOT,
-            renderer.device(),
-            None,
-            Some(1.0),
-        );
+    pub fn new(
+        device: &wgpu::Device,
+        output_color_format: wgpu::TextureFormat,
+        output_depth_format: Option<wgpu::TextureFormat>,
+        msaa_samples: u32,
+        window: &Window,
+    ) -> Self {
+        let ctx = egui::Context::default();
         
-        let egui_renderer = Renderer::new(
-            renderer.device(),
-            wgpu::TextureFormat::Bgra8UnormSrgb, // TODO: Use correct format
+        let egui_state = egui_winit::State::new(
+            ctx.clone(),
+            egui::viewport::ViewportId::ROOT,
+            window,
+            Some(window.scale_factor() as f32),
             None,
-            1,
+        );
+
+        let egui_renderer = egui_wgpu::Renderer::new(
+            device,
+            output_color_format,
+            output_depth_format,
+            msaa_samples,
+            false,
         );
 
         Self {
-            context,
-            state,
+            ctx,
+            state: egui_state,
             renderer: egui_renderer,
         }
     }
 
-    pub fn handle_event(&mut self, window: &Window, event: &WindowEvent) -> bool {
+    pub fn handle_input(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
         let response = self.state.on_window_event(window, event);
         response.consumed
     }
 
-    pub fn update(&mut self, _delta_time: f32) {
-        // Update UI state
-    }
-
-    pub fn prepare(&mut self, window: &Window) {
+    pub fn prepare(&mut self, window: &Window) -> Vec<egui::ClippedPrimitive> {
         let raw_input = self.state.take_egui_input(window);
-        self.context.begin_frame(raw_input);
+        let full_output = self.ctx.run(raw_input, |ctx| {
+            self.render_ui(ctx);
+        });
+        
+        self.state.handle_platform_output(window, full_output.platform_output);
+        
+        full_output.shapes
     }
 
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
+        primitives: Vec<egui::ClippedPrimitive>,
+        screen_descriptor: &egui_wgpu::ScreenDescriptor,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        // End the frame and get the output
-        let output = self.context.end_frame();
-        
-        // Handle platform output
-        self.state.handle_platform_output(
-            &winit::window::Window::default(), // TODO: Pass actual window
-            output.platform_output,
-        );
-
-        // Render UI
-        let paint_jobs = self.context.tessellate(output.shapes, output.pixels_per_point);
-        
-        // Create screen descriptor
-        let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [1280, 720], // TODO: Get actual size
-            pixels_per_point: output.pixels_per_point,
-        };
-
         // Update textures
-        for (id, image_delta) in &output.textures_delta.set {
+        for (id, image_delta) in &primitives[0].primitive.mesh().texture_id {
             self.renderer.update_texture(device, queue, *id, image_delta);
         }
 
-        // Record render commands
-        self.renderer.render(
-            encoder,
-            view,
-            &paint_jobs,
-            &screen_descriptor,
-        );
+        // Render
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("egui_render_pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
 
-        // Free textures
-        for id in &output.textures_delta.free {
-            self.renderer.free_texture(id);
-        }
+        self.renderer.render(&mut render_pass, &primitives, screen_descriptor);
     }
 
-    pub fn show_debug_window(&mut self, game_manager: &crate::game::GameManager, world: &crate::world::World) {
-        if game_manager.is_debug_mode() {
-            egui::Window::new("Debug Info")
-                .default_open(true)
-                .resizable(true)
-                .show(&self.context, |ui| {
-                    ui.label("Debug Information");
-                    ui.separator();
-                    
-                    ui.label(format!("Game Mode: {:?}", game_manager.game_mode()));
-                    ui.label(format!("Player Position: {:?}", game_manager.player().position()));
-                    ui.label(format!("Loaded Chunks: {}", world.loaded_chunks().len()));
-                    ui.label(format!("Render Distance: {}", world.render_distance()));
-                    
-                    if let Some(target) = game_manager.breaking_target() {
-                        ui.label(format!("Breaking Block: {:?}", target));
-                        ui.label(format!("Breaking Progress: {:.1}%", game_manager.breaking_progress() * 100.0));
-                    }
-                });
-        }
+    fn render_ui(&mut self, ctx: &egui::Context) {
+        self.render_debug_window(ctx);
+        self.render_hotbar(ctx);
+        self.render_crosshair(ctx);
     }
 
-    pub fn show_hotbar(&mut self, game_manager: &crate::game::GameManager) {
-        let hotbar = game_manager.player().inventory().hotbar();
-        let selected_slot = game_manager.player().selected_hotbar_slot();
+    fn render_debug_window(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Debug Info")
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("FPS: 60"); // TODO: Calculate actual FPS
+                ui.label("Position: (0, 0, 0)"); // TODO: Get actual position
+                ui.label("Chunks loaded: 0"); // TODO: Get actual chunk count
+            });
+    }
 
-        egui::Area::new("hotbar")
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -20.0))
-            .show(&self.context, |ui| {
+    fn render_hotbar(&mut self, ctx: &egui::Context) {
+        egui::Area::new(egui::Id::new("hotbar"))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::Vec2::new(0.0, -20.0))
+            .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    for (i, item) in hotbar.iter().enumerate() {
-                        let is_selected = i == selected_slot;
-                        
-                        let color = if is_selected {
-                            egui::Color32::WHITE
+                    for i in 0..9 {
+                        let selected = i == 0; // TODO: Get actual selected slot
+                        let bg_color = if selected {
+                            egui::Color32::LIGHT_GRAY
                         } else {
-                            egui::Color32::GRAY
+                            egui::Color32::DARK_GRAY
                         };
-
-                        ui.scope(|ui| {
-                            ui.visuals_mut().widgets.inactive.bg_fill = color;
-                            ui.visuals_mut().widgets.hovered.bg_fill = color;
-                            ui.visuals_mut().widgets.active.bg_fill = color;
-
-                            let button_text = if item.is_empty() {
-                                format!("{}", i + 1)
-                            } else {
-                                format!("{}\n{}", item.item_type.name(), item.count)
-                            };
-
-                            ui.button(button_text);
-                        });
+                        
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::Vec2::splat(40.0),
+                            egui::Sense::click()
+                        );
+                        
+                        ui.painter().rect_filled(rect, 2.0, bg_color);
+                        ui.painter().rect_stroke(rect, 2.0, egui::Stroke::new(1.0, egui::Color32::WHITE));
                     }
                 });
             });
     }
 
-    pub fn show_crosshair(&mut self) {
-        let screen_center = self.context.screen_rect().center();
-        
-        egui::Area::new("crosshair")
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-            .show(&self.context, |ui| {
-                ui.painter().text(
-                    screen_center,
-                    egui::Align2::CENTER_CENTER,
-                    "+",
-                    egui::FontId::proportional(20.0),
-                    egui::Color32::WHITE,
+    fn render_crosshair(&mut self, ctx: &egui::Context) {
+        egui::Area::new(egui::Id::new("crosshair"))
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                let size = 20.0;
+                let thickness = 2.0;
+                let color = egui::Color32::WHITE;
+                
+                let center = ui.available_rect_before_wrap().center();
+                let painter = ui.painter();
+                
+                // Horizontal line
+                painter.line_segment(
+                    [center + egui::Vec2::new(-size/2.0, 0.0), center + egui::Vec2::new(size/2.0, 0.0)],
+                    egui::Stroke::new(thickness, color)
+                );
+                
+                // Vertical line
+                painter.line_segment(
+                    [center + egui::Vec2::new(0.0, -size/2.0), center + egui::Vec2::new(0.0, size/2.0)],
+                    egui::Stroke::new(thickness, color)
                 );
             });
     }

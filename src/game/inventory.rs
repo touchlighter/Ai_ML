@@ -2,7 +2,7 @@ use crate::world::BlockType;
 use std::collections::HashMap;
 
 /// Item stack with type and count
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct ItemStack {
     pub item_type: BlockType,
     pub count: u32,
@@ -284,6 +284,11 @@ impl Inventory {
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self::new()
+        Self {
+            hotbar: [ItemStack::empty(); 9],
+            main: core::array::from_fn(|_| ItemStack::empty()),
+            armor: core::array::from_fn(|_| ItemStack::empty()),
+            offhand: ItemStack::empty(),
+        }
     }
 }
