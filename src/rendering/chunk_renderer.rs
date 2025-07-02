@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use crate::world::{World, ChunkCoordinate};
-use crate::rendering::vertex::ChunkMesh;
+use crate::rendering::vertex::{ChunkMesh, BlockVertex, Face};
+use crate::world::{Chunk, BlockType, CHUNK_SIZE};
+use wgpu::util::DeviceExt;
 
 /// Handles rendering of world chunks with frustum culling and mesh batching
 pub struct ChunkRenderer {
@@ -172,9 +174,11 @@ impl ChunkRenderer {
             BlockType::Sand => match face {
                 _ => 5, // Sand texture
             },
-            BlockType::Wood => match face {
-                Face::Top | Face::Bottom => 6, // Wood rings
-                _ => 7,                        // Wood bark
+            BlockType::Wood => {
+                match face {
+                    Face::Top | Face::Bottom => 6, // Wood rings
+                    _ => 5, // Bark texture
+                }
             },
             BlockType::Leaves => match face {
                 _ => 8, // Leaves texture
@@ -185,6 +189,13 @@ impl ChunkRenderer {
             BlockType::Cobblestone => match face {
                 _ => 10, // Cobblestone texture
             },
+            BlockType::Log => {
+                match face {
+                    Face::Top | Face::Bottom => 6, // Wood rings
+                    _ => 5, // Bark texture
+                }
+            },
+            _ => 0, // Default stone texture for all other blocks
         }
     }
 

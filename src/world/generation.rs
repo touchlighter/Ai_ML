@@ -25,11 +25,11 @@ impl WorldGenerator {
     pub fn new(seed: u64) -> Self {
         Self {
             seed,
-            terrain_noise: OpenSimplex::new().set_seed(seed as u32),
-            cave_noise: OpenSimplex::new().set_seed((seed.wrapping_add(1)) as u32),
-            ore_noise: OpenSimplex::new().set_seed((seed.wrapping_add(2)) as u32),
-            biome_temperature: OpenSimplex::new().set_seed((seed.wrapping_add(3)) as u32),
-            biome_humidity: OpenSimplex::new().set_seed((seed.wrapping_add(4)) as u32),
+            terrain_noise: OpenSimplex::new(seed as u32),
+            cave_noise: OpenSimplex::new(seed.wrapping_add(1) as u32),
+            ore_noise: OpenSimplex::new(seed.wrapping_add(2) as u32),
+            biome_temperature: OpenSimplex::new(seed.wrapping_add(3) as u32),
+            biome_humidity: OpenSimplex::new(seed.wrapping_add(4) as u32),
             sea_level: 64,
             max_height: 120,
             min_height: 30,

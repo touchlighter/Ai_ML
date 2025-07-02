@@ -1,6 +1,7 @@
 use glam::{Mat4, Vec3};
 
 /// 3D camera with perspective projection and FPS-style controls
+#[derive(Clone)]
 pub struct Camera {
     position: Vec3,
     yaw: f32,

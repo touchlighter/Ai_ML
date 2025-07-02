@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     info!("Starting Minecraft Clone");
 
     // Create and run the game engine
-    let mut engine = Engine::new()?;
+    let engine = pollster::block_on(Engine::new())?;
     engine.run()?;
 
     Ok(())
